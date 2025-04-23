@@ -131,7 +131,7 @@ The script produces two main outputs:
 - Visual status indicators
 - Upgrade recommendations
 
-![HTML Report Example](https://via.placeholder.com/800x400?text=HTML+Report+Example)
+![HTML Report Example](example.png)
 
 ### 2️⃣ Detailed CSV Export
 - Complete assessment data
