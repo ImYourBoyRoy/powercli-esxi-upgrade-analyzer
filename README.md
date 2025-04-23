@@ -107,17 +107,23 @@ Create a `config.json` file in the same directory as the script:
 # Check specific ESXi hosts
 .\ESXi-Upgrade-ReadinessCheck.ps1 -Servers "esxi01.domain.com","esxi02.domain.com"
 
-# Process hosts from CSV file
+# Process hosts from a CSV file
 .\ESXi-Upgrade-ReadinessCheck.ps1 -ServerListFile "servers.csv"
 
-# Specify output locations
+# Specify output locations for CSV and HTML report
 .\ESXi-Upgrade-ReadinessCheck.ps1 -Servers "esxi01.domain.com" -OutputCsv "results.csv" -ReportPath "report.html"
 
-# Process multiple hosts in parallel
+# Process multiple hosts in parallel with custom concurrency
 .\ESXi-Upgrade-ReadinessCheck.ps1 -ServerListFile "servers.csv" -Parallel -MaxConcurrentJobs 10
 
-# Specify target ESXi version
+# Specify target ESXi version to check compatibility against
 .\ESXi-Upgrade-ReadinessCheck.ps1 -ServerListFile "servers.csv" -UpgradeVersion "8.0.3"
+
+# Filter servers by name match (e.g., only include hosts with "ESX" in their name)
+.\ESXi-Upgrade-ReadinessCheck.ps1 -ServerListFile "servers.csv" -NameMatch "ESX"
+
+# Combine filters, parallelism, and output control
+.\ESXi-Upgrade-ReadinessCheck.ps1 -ServerListFile "servers.csv" -NameMatch "CHQ" -Parallel -MaxConcurrentJobs 8 -OutputCsv "filtered-results.csv" -ReportPath "filtered-report.html"
 ```
 
 ## 📊 Report Output
