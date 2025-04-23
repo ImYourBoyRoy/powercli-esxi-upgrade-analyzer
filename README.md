@@ -38,7 +38,7 @@
 
 Before you begin your upgrade assessment, ensure you have:
 
-- 💻 PowerShell 5.1 or higher
+- 💻 PowerShell 7 or higher
 - 🔌 VMware PowerCLI module installed
 - 🔑 ESXi host credentials with administrative access
 - 📄 (Optional) CSV file with host inventory
@@ -49,6 +49,12 @@ Before you begin your upgrade assessment, ensure you have:
 
 <details>
 <summary>Click to expand PowerCLI setup instructions</summary>
+
+#### Install Powershell 7+ via Winget 💻
+```powershell
+# Install PowerShell 7+ via winget
+winget install Microsoft.PowerShell
+```
 
 #### Install PowerCLI 🔌
 ```powershell
