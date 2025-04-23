@@ -1,0 +1,12 @@
+{
+    "Username": "administrator@vsphere.local",
+    "Password": "YourSecurePassword",
+    "TargetESXiVersion": "8.0.3",
+    "MinimumRequiredSpaceGB": 10,
+    "MinimumBootbankFreePercentage": 90,
+    "VendorModelsSupported": [
+        "Cisco UCS-C220-M5SX",
+        "Dell PowerEdge R740",
+        "HPE ProLiant DL380 Gen10"
+    ]
+}
