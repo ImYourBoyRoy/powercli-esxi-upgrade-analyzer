@@ -1,0 +1,12 @@
+Servers
+Host Name,IP Address,Notes
+ESXI01.domain.com,10.10.10.101,Production Host
+ESXI02.domain.com,10.10.10.102,Production Host
+ESXI03.domain.com,10.10.10.103,Development Host
+ESXI04.domain.com,10.10.10.104,Test Host
+ESXI05.domain.com,10.10.10.105,Production Host
+CL-ESXI01,10.10.20.101,Cluster Node 1
+CL-ESXI02,10.10.20.102,Cluster Node 2
+CL-ESXI03,10.10.20.103,Cluster Node 3
+LAB-ESXI01,10.10.30.101,Lab Environment
+LAB-ESXI02,10.10.30.102,Lab Environment
