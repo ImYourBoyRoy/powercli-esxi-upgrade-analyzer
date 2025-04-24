@@ -2,6 +2,8 @@
     "Username": "administrator@vsphere.local",
     "Password": "YourSecurePassword",
     "TargetESXiVersion": "8.0.3",
+    "TargetESXiBuild": "24674464",
+    "TargetESXiFullName": "8.0.3 Update 3e (P05)",
     "MinimumRequiredSpaceGB": 10,
     "MinimumBootbankFreePercentage": 90,
     "VendorModelsSupported": [
