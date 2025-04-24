@@ -111,7 +111,7 @@
 #>
 
 [CmdletBinding()]
-param(
+param (
     [switch]$Help,
     [string[]]$Servers,
     [string]$ServerListFile,
@@ -185,10 +185,11 @@ EXAMPLES:
 #region Helper Functions
 
 function Write-Log {
-    param(
+    param (
         [string]$Message,
         [ValidateSet('INFO', 'WARNING', 'ERROR', 'SUCCESS')]
-        [string]$Level = 'INFO'
+        [string]$Level = 'INFO',
+        [switch]$JobContext
     )
     
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -199,18 +200,28 @@ function Write-Log {
         'SUCCESS' = 'Green'
     }
     
-    # Console output with appropriate color
-    Write-Host "[$timestamp] [$Level] $Message" -ForegroundColor $colorMap[$Level]
+    # Format the message
+    $formattedMessage = "[$timestamp] [$Level]"
+    if ($JobContext) {
+        $formattedMessage += " [Job]"
+    }
+    $formattedMessage += " $Message"
     
-    # Write to log file - proper spacing in variable name
-    "[$timestamp] [$Level] $Message" | Out-File -FilePath $script:LogFile -Append
+    # Console output with appropriate color
+    Write-Host $formattedMessage -ForegroundColor $colorMap[$Level]
+    
+    # Only write to log file if not in job context
+    if (-not $JobContext -and $script:LogFile) {
+        $formattedMessage | Out-File -FilePath $script:LogFile -Append
+    }
 }
 
 function Write-FailureLog {
-    param(
+    param (
         [string]$HostName,
         [string]$Reason,
-        [string]$IPAddress = ""
+        [string]$IPAddress = "",
+        [switch]$JobContext
     )
     
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -220,11 +231,13 @@ function Write-FailureLog {
     }
     $logEntry += " - Reason: $Reason"
     
-    # Write to failure log file
-    $logEntry | Out-File -FilePath $script:FailureLogFile -Append
+    # Only write to failure log file if not in job context
+    if (-not $JobContext -and $script:FailureLogFile) {
+        $logEntry | Out-File -FilePath $script:FailureLogFile -Append
+    }
     
     # Also write to main log
-    Write-Log -Message "Failed to process host: $HostName - Reason: $Reason" -Level 'ERROR'
+    Write-Log -Message "Failed to process host: $HostName - Reason: $Reason" -Level 'ERROR' -JobContext:$JobContext
 }
 
 function Initialize-Summary {
@@ -245,7 +258,7 @@ function Initialize-Summary {
 }
 
 function Format-ByteSize {
-    param([double]$Bytes)
+    param ([double]$Bytes)
     $sizes = 'Bytes,KB,MB,GB,TB,PB'
     $sizes = $sizes.Split(',')
     $index = 0
@@ -257,7 +270,7 @@ function Format-ByteSize {
 }
 
 function Write-ProgressUpdate {
-    param(
+    param (
         [int]$Current,
         [int]$Total,
         [string]$Status
@@ -380,6 +393,10 @@ function Connect-ESXiHost {
         # Try hostname first
         try {
             $server = Connect-VIServer -Server $HostName -Credential $Credential -ErrorAction Stop
+            # Make sure we're returning a single server
+            if ($server -is [Array]) {
+                $server = $server[0]
+            }
             Write-Log -Message "Connected to ESXi host $($server.Name)" -Level 'SUCCESS'
             return $server
         }
@@ -388,6 +405,10 @@ function Connect-ESXiHost {
             if ($IPAddress) {
                 Write-Log -Message "Failed to connect using hostname, trying IP address: $IPAddress" -Level 'WARNING'
                 $server = Connect-VIServer -Server $IPAddress -Credential $Credential -ErrorAction Stop
+                # Make sure we're returning a single server
+                if ($server -is [Array]) {
+                    $server = $server[0]
+                }
                 Write-Log -Message "Connected to ESXi host $($server.Name) via IP: $IPAddress" -Level 'SUCCESS'
                 return $server
             }
@@ -405,10 +426,18 @@ function Connect-ESXiHost {
 function Get-ESXiHostInfo {
     param(
         [string]$HostName,
-        [VMware.VimAutomation.ViCore.Impl.V1.VIServerImpl]$Server
+        [object]$Server
     )
     
     try {
+        # Make sure Server is a single VMHost object
+        if ($Server -is [Array]) {
+            # If an array is returned, take the first item
+            $Server = $Server[0]
+            Write-Log -Message "Server returned as array, using first item" -Level 'WARNING'
+        }
+        
+		Write-Log -Message "Getting host information for ${HostName}" -Level 'INFO'
         # Get VMHost object
         $vmhost = Get-VMHost -Name $HostName -Server $Server -ErrorAction Stop
         
@@ -422,7 +451,7 @@ function Get-ESXiHostInfo {
 }
 
 function Get-ESXiImageProfile {
-    param(
+    param (
         [VMware.VimAutomation.ViCore.Types.V1.Inventory.VMHost]$VMHost
     )
     
@@ -445,7 +474,7 @@ function Get-ESXiImageProfile {
 }
 
 function Get-ESXiInstallDate {
-    param(
+    param (
         [VMware.VimAutomation.ViCore.Types.V1.Inventory.VMHost]$VMHost
     )
     
@@ -468,7 +497,7 @@ function Get-ESXiInstallDate {
 }
 
 function Get-ESXiSystemTime {
-    param(
+    param (
         [VMware.VimAutomation.ViCore.Types.V1.Inventory.VMHost]$VMHost
     )
     
@@ -491,7 +520,7 @@ function Get-ESXiSystemTime {
 }
 
 function Get-ESXiFilesystemInfo {
-    param(
+    param (
         [VMware.VimAutomation.ViCore.Types.V1.Inventory.VMHost]$VMHost
     )
     
@@ -532,7 +561,8 @@ function Get-ESXiFilesystemInfo {
 }
 
 function Get-ESXiHardwareInfo {
-    param(
+    param (
+        [Parameter(Mandatory = $true)]
         [VMware.VimAutomation.ViCore.Types.V1.Inventory.VMHost]$VMHost
     )
     
@@ -565,7 +595,7 @@ function Get-ESXiHardwareInfo {
 }
 
 function Get-ESXiAssetTag {
-    param(
+    param (
         [VMware.VimAutomation.ViCore.Types.V1.Inventory.VMHost]$VMHost
     )
     
@@ -587,7 +617,7 @@ function Get-ESXiAssetTag {
 }
 
 function Get-ESXiNetworkInfo {
-    param(
+    param (
         [VMware.VimAutomation.ViCore.Types.V1.Inventory.VMHost]$VMHost
     )
     
@@ -624,7 +654,6 @@ function Get-ESXiNetworkInfo {
 }
 
 function Get-ESXiReleaseInfo {
-    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [string]$BuildNumber
@@ -707,7 +736,7 @@ function Get-ESXiReleaseInfo {
 }
 
 function Test-CPUCompatibility {
-    param(
+    param (
         [string]$ProcessorType,
         [string]$Manufacturer,
         [string]$Model
@@ -848,7 +877,7 @@ function Test-CPUCompatibility {
 
 
 function Test-StorageReadiness {
-    param(
+    param (
         [array]$VolumeInfo,
         [double]$MinimumRequiredSpaceGB,
         [double]$MinimumBootbankFreePercentage
@@ -942,7 +971,7 @@ function Test-StorageReadiness {
 }
 
 function Test-DirectUpgradePathAvailable {
-    param(
+    param (
         [string]$CurrentVersion,
         [string]$TargetVersion
     )
@@ -993,7 +1022,7 @@ function Test-DirectUpgradePathAvailable {
 }
 
 function Get-UpgradeReadinessCategory {
-    param(
+    param (
         [bool]$CPUCompatible,
         [bool]$StorageReady,
         [bool]$DirectUpgradePossible,
@@ -1024,7 +1053,6 @@ function Get-UpgradeReadinessCategory {
 }
 
 function Get-UpgradePathInfo {
-    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [string]$CurrentVersion,
@@ -1136,7 +1164,7 @@ function Get-UpgradePathInfo {
 }
 
 function Analyze-ESXiHost {
-    param(
+    param (
         [string]$HostName,
         [string]$IPAddress = "",
         [PSCredential]$Credential,
@@ -1268,7 +1296,7 @@ function Analyze-ESXiHost {
         return $hostResult
     }
     catch {
-        Write-Log -Message "Failed to analyze host $HostName- $_" -Level 'ERROR'
+        Write-Log -Message "Failed to analyze host $HostName - $_" -Level 'ERROR'
         Write-FailureLog -HostName $HostName -IPAddress $IPAddress -Reason $_.ToString()
         
         # Update host result with failure
@@ -1294,10 +1322,10 @@ function Analyze-ESXiHost {
 #region Server List Processing
 
 function Get-TargetServers {
-    param(
+    param (
         [string[]]$Servers,
         [string]$ServerListFile,
-		[string]$NameMatch
+        [string]$NameMatch
     )
     
     $targetList = @()
@@ -1422,7 +1450,7 @@ function Get-TargetServers {
 #region Reporting Functions
 
 function Export-ResultsToCSV {
-    param(
+    param (
         [array]$Results,
         [string]$CsvPath
     )
@@ -1498,7 +1526,7 @@ function Export-ResultsToCSV {
 }
 
 function Test-CPUCompatibility {
-    param(
+    param (
         [string]$ProcessorType,
         [string]$Manufacturer,
         [string]$Model
@@ -1637,10 +1665,8 @@ function Test-CPUCompatibility {
     return $result
 }
 
-# Fix 2: Fix the HTML report generation function to correct the tooltip callback issue
-
 function Generate-HTMLReport {
-    param(
+    param (
         [array]$Results,
         [string]$ReportPath,
         [string]$TargetESXiVersion
@@ -2362,7 +2388,7 @@ try {
     Initialize-PowerCLI
     
     # Get list of hosts to process
-    $targetHosts = Get-TargetServers -Servers $Servers -ServerListFile $ServerListFile
+    $targetHosts = Get-TargetServers -Servers $Servers -ServerListFile $ServerListFile -NameMatch $NameMatch
     
     if ($targetHosts.Count -eq 0) {
         Write-Log -Message "No hosts found to process. Please check your input parameters." -Level 'WARNING'
@@ -2380,358 +2406,225 @@ try {
         
         # Define Write-FailureLog function for the jobs
         $writeFailureLogFunction = @'
-        function Write-FailureLog {
-            param(
-                [string]$HostName,
-                [string]$Reason,
-                [string]$IPAddress = ""
-            )
-            
-            $failedLog = "failed_connections.txt"
-            $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-            $logEntry = "$timestamp - Failed to connect to host: $HostName"
-            if ($IPAddress) {
-                $logEntry += " (IP: $IPAddress)"
-            }
-            $logEntry += " - Reason: $Reason"
-            
-            # In a job, we'll just log this to the job output
-            Write-Output "FAILURE: $logEntry"
-        }
+function Write-FailureLog {
+    param(
+        [string]$HostName,
+        [string]$Reason,
+        [string]$IPAddress = ""
+    )
+    
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $logEntry = "$timestamp - Failed to connect to host: $HostName"
+    if ($IPAddress) {
+        $logEntry += " (IP: $IPAddress)"
+    }
+    $logEntry += " - Reason: $Reason"
+    
+    # Just output to the console
+    Write-Output "FAILURE: $logEntry"
+}
+'@
+
+		$writeLogFunction = @'
+function Write-JobLog {
+    param(
+        [string]$Message,
+        [string]$Level = 'INFO'
+    )
+    
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    # Just output to the console, don't try to write to a file
+    Write-Output "[$timestamp] [$Level] [Job] $Message"
+}
 '@
         
-        # Get all necessary functions to include in the job
-        $functionDefinitions = @(
-            $writeFailureLogFunction,
-            ${function:Connect-ESXiHost}.ToString(),
-            ${function:Get-ESXiHostInfo}.ToString(),
-            ${function:Get-ESXiImageProfile}.ToString(),
-            ${function:Get-ESXiInstallDate}.ToString(),
-            ${function:Get-ESXiSystemTime}.ToString(),
-            ${function:Get-ESXiFilesystemInfo}.ToString(),
-            ${function:Get-ESXiHardwareInfo}.ToString(),
-            ${function:Get-ESXiAssetTag}.ToString(),
-            ${function:Get-ESXiNetworkInfo}.ToString(),
-            ${function:Test-CPUCompatibility}.ToString(),
-            ${function:Test-StorageReadiness}.ToString(),
-            ${function:Test-DirectUpgradePathAvailable}.ToString(),
-            ${function:Get-UpgradePathInfo}.ToString(),
-            ${function:Get-UpgradeReadinessCategory}.ToString(),
-            ${function:Get-ESXiReleaseInfo}.ToString()
-        )
-        
-        # Simple log function for jobs
-        $writeLogFunction = @'
-        function Write-JobLog {
-            param(
-                [string]$Message,
-                [string]$Level = 'INFO'
-            )
-            
-            $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-            Write-Output "[$timestamp] [$Level] [Job] $Message"
-        }
-'@
-        
-        # Create the complete script block for job execution
-        $scriptBlock = {
-            param(
-                [string]$HostName,
-                [string]$IPAddress,
-                [PSCredential]$Credential,
-                [string]$TargetVersion,
-                [string]$TargetESXiBuild,
-                [string]$TargetESXiDetail,
-                [double]$MinRequiredSpaceGB,
-                [double]$MinBootbankFreePercentage,
-                [string]$FunctionDefinitions,
-                [string]$WriteLogFunction
-            )
-            
-            # Load the logging function first
-            Invoke-Expression $WriteLogFunction
-            
-            # Load all the functions from string definitions
-            Invoke-Expression $FunctionDefinitions
-            
-            # Configure PowerCLI
-            try {
-                Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false | Out-Null
-                Set-PowerCLIConfiguration -Scope User -ParticipateInCEIP $false -Confirm:$false | Out-Null
-                Write-JobLog -Message "PowerCLI configuration set successfully" -Level 'INFO'
-            }
-            catch {
-                Write-JobLog -Message "Error configuring PowerCLI: $_" -Level 'ERROR'
-            }
-            
-            # This is the job version of Analyze-ESXiHost
-            function Analyze-ESXiHostInJob {
-                param(
-                    [string]$HostName,
-                    [string]$IPAddress = "",
-                    [PSCredential]$Credential,
-                    [string]$TargetVersion,
-                    [string]$TargetESXiBuild,
-                    [string]$TargetESXiDetail,
-                    [double]$MinimumRequiredSpaceGB,
-                    [double]$MinimumBootbankFreePercentage
-                )
-                
-                $hostResult = [PSCustomObject]@{
-                    HostName = $HostName
-                    IPAddress = $IPAddress
-                    Version = ""
-                    Build = ""
-                    VersionDetail = ""
-                    TargetVersion = $TargetVersion
-                    TargetVersionDetail = $TargetESXiDetail
-                    Manufacturer = ""
-                    Model = ""
-                    ProcessorType = ""
-                    MemoryGB = 0
-                    ImageProfile = ""
-                    InstallDate = ""
-                    CPUCompatible = $false
-                    CPUCompatibilityNotes = ""
-                    CPUCompatibilityIcon = "❓"
-                    StorageReady = $false
-                    StorageIssues = @()
-                    OSDATAFreeGB = 0
-                    OSDATASizeGB = 0
-                    DirectUpgradePossible = $false
-                    AlreadyUpToDate = $false
-                    UpgradePathNotes = ""
-                    RecommendedPath = ""
-                    UpgradeReadiness = "Not Ready"
-                    UpgradeReadinessCategory = ""
-                    DetailedInfo = $null
-                }
-                
-                try {
-                    Write-JobLog -Message "Starting analysis of host: $HostName" -Level 'INFO'
-                    
-                    # Connect to ESXi host
-                    $server = Connect-ESXiHost -HostName $HostName -Credential $Credential -IPAddress $IPAddress
-                    if ($null -eq $server) {
-                        throw "Failed to establish connection"
-                    }
-                    
-                    # Get basic host info
-                    $vmhost = Get-ESXiHostInfo -HostName $HostName -Server $server
-                    $hostResult.Version = $vmhost.Version
-                    $hostResult.Build = $vmhost.Build
-                    
-                    # Get version detail from build mapping
-                    $releaseInfo = Get-ESXiReleaseInfo -BuildNumber $vmhost.Build
-                    $hostResult.VersionDetail = $releaseInfo.ReleaseName
-                    
-                    # Get additional info
-                    $hardwareInfo = Get-ESXiHardwareInfo -VMHost $vmhost
-                    $hostResult.Manufacturer = $hardwareInfo.Manufacturer
-                    $hostResult.Model = $hardwareInfo.Model
-                    $hostResult.ProcessorType = $hardwareInfo.ProcessorType
-                    $hostResult.MemoryGB = $hardwareInfo.MemoryGB
-                    
-                    $hostResult.ImageProfile = Get-ESXiImageProfile -VMHost $vmhost
-                    $hostResult.InstallDate = Get-ESXiInstallDate -VMHost $vmhost
-                    
-                    # Get filesystem info
-                    $volumeInfo = Get-ESXiFilesystemInfo -VMHost $vmhost
-                    
-                    # Test CPU compatibility
-                    $cpuResult = Test-CPUCompatibility -ProcessorType $hardwareInfo.ProcessorType -Manufacturer $hardwareInfo.Manufacturer -Model $hardwareInfo.Model
-                    $hostResult.CPUCompatible = $cpuResult.IsCompatible
-                    $hostResult.CPUCompatibilityNotes = $cpuResult.CompatibilityNotes
-                    $hostResult.CPUCompatibilityIcon = $cpuResult.Icon
-                    
-                    # Test storage readiness
-                    $storageResult = Test-StorageReadiness -VolumeInfo $volumeInfo -MinimumRequiredSpaceGB $MinimumRequiredSpaceGB -MinimumBootbankFreePercentage $MinimumBootbankFreePercentage
-                    $hostResult.StorageReady = $storageResult.IsReady
-                    $hostResult.StorageIssues = $storageResult.Issues
-                    $hostResult.OSDATAFreeGB = $storageResult.OSDATAFree
-                    $hostResult.OSDATASizeGB = $storageResult.OSDATASize
-                    
-                    # Test upgrade path - updated to check for already on target version
-                    $upgradePathResult = Get-UpgradePathInfo -CurrentVersion $vmhost.Version -CurrentBuild $vmhost.Build -TargetVersion $TargetVersion -TargetBuild $TargetESXiBuild
-                    $hostResult.DirectUpgradePossible = $upgradePathResult.DirectUpgradePossible
-                    $hostResult.UpgradePathNotes = $upgradePathResult.UpgradePathNotes
-                    $hostResult.RecommendedPath = $upgradePathResult.RecommendedPath
-                    $hostResult.AlreadyUpToDate = $upgradePathResult.AlreadyUpToDate
-                    
-                    # Determine overall readiness - now with proper handling for already-on-target hosts
-                    if ($upgradePathResult.AlreadyUpToDate) {
-                        $hostResult.UpgradeReadiness = "Already Up-To-Date"
-                        $hostResult.UpgradeReadinessCategory = "Already Up-To-Date"
-                    } 
-                    elseif ($cpuResult.IsCompatible -and $storageResult.IsReady -and $upgradePathResult.DirectUpgradePossible) {
-                        $hostResult.UpgradeReadiness = "Ready for Upgrade"
-                        $hostResult.UpgradeReadinessCategory = "Ready"
-                    } 
-                    else {
-                        $hostResult.UpgradeReadiness = "Not Ready"
-                        $hostResult.UpgradeReadinessCategory = Get-UpgradeReadinessCategory -CPUCompatible $cpuResult.IsCompatible -StorageReady $storageResult.IsReady -DirectUpgradePossible $upgradePathResult.DirectUpgradePossible -AlreadyUpToDate $upgradePathResult.AlreadyUpToDate
-                    }
-                    
-                    # Store detailed info
-                    $hostResult.DetailedInfo = [PSCustomObject]@{
-                        Hardware = $hardwareInfo
-                        Network = Get-ESXiNetworkInfo -VMHost $vmhost
-                        Storage = $volumeInfo
-                        SystemTime = Get-ESXiSystemTime -VMHost $vmhost
-                        CPUResult = $cpuResult
-                        StorageResult = $storageResult
-                        UpgradePathResult = $upgradePathResult
-                    }
-                    
-                    Write-JobLog -Message "Completed analysis of host $HostName - Result: $($hostResult.UpgradeReadiness)" -Level 'INFO'
-                    
-                    # Disconnect from the server
-                    try {
-                        Disconnect-VIServer -Server $server -Confirm:$false -Force -ErrorAction SilentlyContinue | Out-Null
-                        Write-JobLog -Message "Disconnected from host $HostName" -Level 'INFO'
-                    }
-                    catch {
-                        Write-JobLog -Message "Error disconnecting from host $HostName- $_" -Level 'WARNING'
-                    }
-                    
-                    return $hostResult
-                }
-                catch {
-                    Write-JobLog -Message "Failed to analyze host $HostName- $_" -Level 'ERROR'
-                    Write-FailureLog -HostName $HostName -IPAddress $IPAddress -Reason $_.ToString()
-                    
-                    # Update host result with failure
-                    $hostResult.UpgradeReadiness = "Failed to Check"
-                    $hostResult.UpgradeReadinessCategory = "Failed to Check"
-                    $hostResult.CPUCompatibilityIcon = "❓" # Unknown for failed hosts
-                    
-                    # Try to disconnect in case connection was established
-                    if ($server) {
-                        try {
-                            Disconnect-VIServer -Server $server -Confirm:$false -Force -ErrorAction SilentlyContinue | Out-Null
-                        }
-                        catch {
-                            # Ignore disconnect errors during failure handling
-                        }
-                    }
-                    
-                    return $hostResult
-                }
-            }
+		# Build a single string containing all function definitions
+		#$allFunctionDefs = $writeFailureLogFunction + "`n`n" + $writeLogFunction + "`n`n"
+		$allFunctionDefs = @()
+		
+		# Add the regular functions - important to use this format to maintain proper function structure
+		$functions = @(
+			'write-log',
+			'Write-FailureLog',
+			'Connect-ESXiHost',
+			'Get-ESXiHostInfo',
+			'Get-ESXiImageProfile',
+			'Get-ESXiInstallDate',
+			'Get-ESXiSystemTime',
+			'Get-ESXiFilesystemInfo',
+			'Get-ESXiHardwareInfo',
+			'Get-ESXiAssetTag',
+			'Get-ESXiNetworkInfo',
+			'Test-CPUCompatibility',
+			'Test-StorageReadiness',
+			'Test-DirectUpgradePathAvailable',
+			'Get-UpgradePathInfo',
+			'Get-UpgradeReadinessCategory',
+			'Get-ESXiReleaseInfo',
+			'Analyze-ESXiHost'
+		)
+		
+		foreach ($function in $functions) {
+			$functionContent = Get-Item "Function:\$function" | Select-Object -ExpandProperty ScriptBlock
+			$allFunctionDefs += "function $function {`n$functionContent`n}`n`n"
+		}
+		
+		# Create the script block with the Analyze-ESXiHostInJob function
+		$scriptBlock = {
+			param(
+				[string]$HostName,
+				[string]$IPAddress,
+				[PSCredential]$Credential,
+				[string]$TargetVersion,
+				[string]$TargetESXiBuild,
+				[string]$TargetESXiDetail,
+				[double]$MinRequiredSpaceGB,
+				[double]$MinBootbankFreePercentage,
+				[string]$FunctionDefinitions
+			)
+			
+			# Load all the functions
+			. ([ScriptBlock]::Create($FunctionDefinitions))
+			
+			# Configure PowerCLI
+			try {
+				Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false | Out-Null
+				Set-PowerCLIConfiguration -Scope User -ParticipateInCEIP $false -Confirm:$false | Out-Null
+				Write-Log -Message "PowerCLI configuration set successfully" -Level 'INFO'
+			}
+			catch {
+				Write-Log -Message "Error configuring PowerCLI: $_" -Level 'ERROR'
+			}
             
             # Run the analysis
-            return Analyze-ESXiHostInJob -HostName $HostName -IPAddress $IPAddress -Credential $Credential -TargetVersion $TargetVersion -TargetESXiBuild $TargetESXiBuild -TargetESXiDetail $TargetESXiDetail -MinimumRequiredSpaceGB $MinRequiredSpaceGB -MinimumBootbankFreePercentage $MinBootbankFreePercentage
+			return Analyze-ESXiHost -HostName $HostName -IPAddress $IPAddress -Credential $Credential -TargetVersion $TargetVersion -TargetESXiBuild $TargetESXiBuild -TargetESXiDetail $TargetESXiDetail -MinimumRequiredSpaceGB $MinRequiredSpaceGB -MinimumBootbankFreePercentage $MinBootbankFreePercentage
         }
         
-        # Start jobs with throttling
-        $jobs = @()
-        $runningJobs = @()
-        
-        # Serialize all function definitions to pass to job
-        $allFunctionDefs = $functionDefinitions -join "`n`n"
-        
-        for ($i = 0; $i -lt $targetHosts.Count; $i++) {
-            $currentServer = $targetHosts[$i]
-            Write-ProgressUpdate -Current $i -Total $targetHosts.Count -Status "Starting job for $($currentServer.HostName)"
-            
-            # Throttle jobs
-            while ($runningJobs.Count -ge $MaxConcurrentJobs) {
-                $completedJobs = $runningJobs | Where-Object { $_.State -ne "Running" }
-                foreach ($job in $completedJobs) {
-                    $runningJobs = $runningJobs | Where-Object { $_ -ne $job }
-                }
-                
-                if ($runningJobs.Count -ge $MaxConcurrentJobs) {
-                    Start-Sleep -Seconds 2
-                }
-            }
-            
-            # Start new job with all necessary data and functions
-            $job = Start-Job -ScriptBlock $scriptBlock -ArgumentList $currentServer.HostName, $currentServer.IPAddress, $creds, $targetVersion, $targetESXiBuild, $targetESXiDetail, $minRequiredSpaceGB, $minBootbankFreePercentage, $allFunctionDefs, $writeLogFunction
-            $jobs += $job
-            $runningJobs += $job
-        }
-        
-        # Wait for all jobs to complete
-        $currentJob = 0
-        foreach ($job in $jobs) {
-            $currentJob++
-            Write-ProgressUpdate -Current $currentJob -Total $jobs.Count -Status "Waiting for job to complete"
-            
-            # Get job result
-            try {
-                $jobResult = Receive-Job -Job $job -ErrorAction Stop -Wait
-                
-                # Extract job log messages
-                $jobLogMessages = $jobResult | Where-Object { $_ -is [string] -and $_ -match '^\[\d{4}-\d{2}-\d{2}' }
-                foreach ($message in $jobLogMessages) {
-                    Write-Host $message
-                }
-                
-                # Get the actual host result (should be the last object)
-                $hostResult = $jobResult | Where-Object { $_ -is [PSCustomObject] -and $_.PSObject.Properties.Name -contains 'HostName' } | Select-Object -Last 1
-                
-                if ($hostResult) {
-                    $results += $hostResult
-                    
-                    # Update summary based on host result
-                    if ($hostResult.UpgradeReadiness -eq "Ready for Upgrade") {
-                        $script:Summary.ReadyForUpgrade++
-                        $script:Summary.Categories["Ready"] += $hostResult.HostName
-                    }
-                    elseif ($hostResult.UpgradeReadiness -eq "Already Up-To-Date") {
-                        $script:Summary.AlreadyUpToDate++
-                        $script:Summary.Categories["Already Up-To-Date"] += $hostResult.HostName
-                    }
-                    elseif ($hostResult.UpgradeReadiness -eq "Failed to Check") {
-                        $script:Summary.FailedToCheck++
-                        $script:Summary.Categories["Failed to Check"] += $hostResult.HostName
-                    }
-                    else {
-                        $script:Summary.NotReadyForUpgrade++
-                        $script:Summary.Categories[$hostResult.UpgradeReadinessCategory] += $hostResult.HostName
-                    }
-                    
-                    Write-Log -Message "Successfully processed job result for host: $($hostResult.HostName)" -Level 'INFO'
-                }
-                else {
-                    Write-Log -Message "No valid host result found in job output for job $currentJob" -Level 'WARNING'
-                    
-                    # Create a failed result
-                    $failedResult = [PSCustomObject]@{
-                        HostName = $targetHosts[$currentJob - 1].HostName
-                        IPAddress = $targetHosts[$currentJob - 1].IPAddress
-                        UpgradeReadiness = "Failed to Check"
-                        UpgradeReadinessCategory = "Failed to Check"
-                        CPUCompatibilityIcon = "❓"
-                    }
-                    
-                    $results += $failedResult
-                    $script:Summary.FailedToCheck++
-                    $script:Summary.Categories["Failed to Check"] += $failedResult.HostName
-                }
-            }
-            catch {
-                Write-Log -Message "Error receiving job result: $_" -Level 'ERROR'
-                
-                # Create a failed result
-                $failedResult = [PSCustomObject]@{
-                    HostName = $targetHosts[$currentJob - 1].HostName
-                    IPAddress = $targetHosts[$currentJob - 1].IPAddress
-                    UpgradeReadiness = "Failed to Check"
-                    UpgradeReadinessCategory = "Failed to Check"
-                    CPUCompatibilityIcon = "❓"
-                }
-                
-                $results += $failedResult
-                $script:Summary.FailedToCheck++
-                $script:Summary.Categories["Failed to Check"] += $failedResult.HostName
-            }
-            
-            # Clean up job
-            Remove-Job -Job $job -Force
-        }
-    } 
+		# Start jobs with throttling
+		$jobs = @()
+		$runningJobs = @()
+
+		for ($i = 0; $i -lt $targetHosts.Count; $i++) {
+			$currentServer = $targetHosts[$i]
+			Write-ProgressUpdate -Current $i -Total $targetHosts.Count -Status "Starting job for $($currentServer.HostName)"
+
+			while ($runningJobs.Count -ge $MaxConcurrentJobs) {
+				$completedJobs = $runningJobs | Where-Object { $_.State -ne "Running" }
+				foreach ($job in $completedJobs) {
+					$runningJobs = $runningJobs | Where-Object { $_ -ne $job }
+				}
+
+				if ($runningJobs.Count -ge $MaxConcurrentJobs) {
+					Start-Sleep -Seconds 2
+				}
+			}
+
+			$job = Start-Job -Name $currentServer.HostName -ScriptBlock $scriptBlock -ArgumentList $currentServer.HostName, $currentServer.IPAddress, $creds, $targetVersion, $targetESXiBuild, $targetESXiDetail, $minRequiredSpaceGB, $minBootbankFreePercentage, $allFunctionDefs
+			$jobs += $job
+			$runningJobs += $job
+		}
+
+		# Enhanced waiting loop for all jobs to complete
+		$totalJobs = $jobs.Count
+		$completedJobs = 0
+		$jobStatus = @{}
+
+		while ($completedJobs -lt $totalJobs) {
+			foreach ($job in $jobs) {
+				try {
+					$jobState = $job.State
+				} catch {
+					Write-Log -Message "Failed to get job state for job ID $($job.Id): $_" -Level 'ERROR'
+					continue
+				}
+
+				$hostName = $job.Name
+				if (-not $jobStatus.ContainsKey($job.Id)) {
+					$jobStatus[$job.Id] = $jobState
+				}
+
+				if ($jobState -ne $jobStatus[$job.Id]) {
+					$jobStatus[$job.Id] = $jobState
+
+					switch ($jobState) {
+						'Running' {
+							Write-Log -Message "Job [$hostName] is running..." -Level 'INFO'
+						}
+						'Completed' {
+							try {
+								$jobResult = Receive-Job -Job $job -ErrorAction Stop -Wait
+								$jobLogMessages = $jobResult | Where-Object { $_ -is [string] -and $_ -match '^[\[]\d{4}-\d{2}-\d{2}' }
+								foreach ($message in $jobLogMessages) {
+									Write-Host $message
+								}
+
+								$hostResult = $jobResult | Where-Object { $_ -is [PSCustomObject] -and $_.PSObject.Properties.Name -contains 'HostName' } | Select-Object -Last 1
+								if ($hostResult) {
+									$results += $hostResult
+
+									if ($hostResult.UpgradeReadiness -eq "Ready for Upgrade") {
+										$script:Summary.ReadyForUpgrade++
+										$script:Summary.Categories["Ready"] += $hostResult.HostName
+									}
+									elseif ($hostResult.UpgradeReadiness -eq "Already Up-To-Date") {
+										$script:Summary.AlreadyUpToDate++
+										$script:Summary.Categories["Already Up-To-Date"] += $hostResult.HostName
+									}
+									elseif ($hostResult.UpgradeReadiness -eq "Failed to Check") {
+										$script:Summary.FailedToCheck++
+										$script:Summary.Categories["Failed to Check"] += $hostResult.HostName
+									}
+									else {
+										$script:Summary.NotReadyForUpgrade++
+										$script:Summary.Categories[$hostResult.UpgradeReadinessCategory] += $hostResult.HostName
+									}
+
+									Write-Log -Message "Successfully processed job result for host: $($hostResult.HostName)" -Level 'INFO'
+								}
+								else {
+									throw "No valid host result found"
+								}
+							} catch {
+								Write-Log -Message "Error receiving job result for host $hostName - $_" -Level 'ERROR'
+								$failedResult = [PSCustomObject]@{
+									HostName = $hostName
+									IPAddress = ($targetHosts | Where-Object { $_.HostName -eq $hostName }).IPAddress
+									UpgradeReadiness = "Failed to Check"
+									UpgradeReadinessCategory = "Failed to Check"
+									CPUCompatibilityIcon = "❓"
+								}
+								$results += $failedResult
+								$script:Summary.FailedToCheck++
+								$script:Summary.Categories["Failed to Check"] += $failedResult.HostName
+							}
+
+							Remove-Job -Job $job -Force
+							$completedJobs++
+						}
+						'Failed' {
+							Write-Log -Message "Job [$hostName] failed" -Level 'ERROR'
+							$failedResult = [PSCustomObject]@{
+								HostName = $hostName
+								IPAddress = ($targetHosts | Where-Object { $_.HostName -eq $hostName }).IPAddress
+								UpgradeReadiness = "Failed to Check"
+								UpgradeReadinessCategory = "Failed to Check"
+								CPUCompatibilityIcon = "❓"
+							}
+							$results += $failedResult
+							$script:Summary.FailedToCheck++
+							$script:Summary.Categories["Failed to Check"] += $failedResult.HostName
+							Remove-Job -Job $job -Force
+							$completedJobs++
+						}
+					}
+				}
+			}
+
+			Write-Progress -Activity "ESXi Upgrade Job Monitor" -Status "$completedJobs / $totalJobs jobs completed" -PercentComplete ([math]::Round(($completedJobs / $totalJobs) * 100))
+			Start-Sleep -Seconds 1
+		}
+	}
+
     else {
         # Process hosts sequentially
         for ($i = 0; $i -lt $targetHosts.Count; $i++) {
